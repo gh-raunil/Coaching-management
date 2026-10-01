@@ -23,6 +23,7 @@ export const coachingRepository = {
         c.*,
         (SELECT COUNT(*) FROM students s WHERE s.coaching_id = c.id AND s.is_active = true) AS student_count,
         (SELECT COUNT(*) FROM coaching_admins ca WHERE ca.coaching_id = c.id) AS admin_count,
+        (SELECT COUNT(*) FROM coaching_courses cc WHERE cc.coaching_id = c.id) AS course_count,
         (SELECT COALESCE(SUM(p.amount), 0) FROM payments p WHERE p.coaching_id = c.id) AS total_revenue
       FROM coachings c
       WHERE 1=1
@@ -46,6 +47,7 @@ export const coachingRepository = {
       ...row,
       student_count: parseInt(row.student_count || '0', 10),
       admin_count: parseInt(row.admin_count || '0', 10),
+      course_count: parseInt(row.course_count || '0', 10),
       total_revenue: parseFloat(row.total_revenue || '0'),
     }));
   },
@@ -71,10 +73,27 @@ export const coachingRepository = {
       [id]
     );
 
+    // Fetch assigned courses
+    const coursesRes = await db.query(
+      `SELECT c.id, c.course_name, c.duration, c.default_fee, c.is_active
+       FROM courses c
+       JOIN coaching_courses cc ON cc.course_id = c.id
+       WHERE cc.coaching_id = $1
+       ORDER BY c.course_name ASC`,
+      [id]
+    );
+    const assigned_courses = coursesRes.rows.map((c: any) => ({
+      ...c,
+      default_fee: parseFloat(c.default_fee),
+    }));
+    const assigned_course_ids = assigned_courses.map((c: any) => c.id);
+
     const stats = statsRes.rows[0];
 
     return {
       ...coaching,
+      assigned_courses,
+      assigned_course_ids,
       stats: {
         student_count: parseInt(stats.student_count || '0', 10),
         admin_count: parseInt(stats.admin_count || '0', 10),
@@ -108,7 +127,7 @@ export const coachingRepository = {
     return res.rows[0];
   },
 
-  async update(id: number, data: Partial<CoachingRow>): Promise<CoachingRow | null> {
+  async update(id: number, data: Partial<CoachingRow> & { course_ids?: number[] }): Promise<any> {
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -124,19 +143,28 @@ export const coachingRepository = {
       }
     }
 
-    if (fields.length === 0) {
-      return (await this.findById(id)) as any;
+    if (fields.length > 0) {
+      fields.push(`updated_at = CURRENT_TIMESTAMP`);
+      values.push(id);
+
+      await db.query<CoachingRow>(
+        `UPDATE coachings SET ${fields.join(', ')} WHERE id = $${idx}`,
+        values
+      );
     }
 
-    fields.push(`updated_at = CURRENT_TIMESTAMP`);
-    values.push(id);
+    // Sync course_ids if provided
+    if (data.course_ids !== undefined && Array.isArray(data.course_ids)) {
+      await db.query(`DELETE FROM coaching_courses WHERE coaching_id = $1`, [id]);
+      for (const courseId of data.course_ids) {
+        await db.query(
+          `INSERT INTO coaching_courses (coaching_id, course_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [id, courseId]
+        );
+      }
+    }
 
-    const res = await db.query<CoachingRow>(
-      `UPDATE coachings SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
-      values
-    );
-
-    return res.rows[0] || null;
+    return await this.findById(id);
   },
 
   async updateStatus(id: number, status: 'ACTIVE' | 'SUSPENDED'): Promise<CoachingRow | null> {

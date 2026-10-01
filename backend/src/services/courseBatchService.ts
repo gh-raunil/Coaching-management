@@ -6,19 +6,28 @@ export const courseBatchService = {
   },
 
   async createCourse(data: {
-    coaching_id: number;
     course_name: string;
-    duration?: string;
+    duration?: string | null;
     default_fee?: number;
     is_active?: boolean;
+    coaching_id?: number | null;
   }) {
     return await courseBatchRepository.createCourse({
       coaching_id: data.coaching_id,
       course_name: data.course_name.trim(),
-      duration: data.duration?.trim(),
+      duration: data.duration?.trim() || null,
       default_fee: data.default_fee,
       is_active: data.is_active,
     });
+  },
+
+  async bulkCreateCourses(courses: Array<{
+    course_name: string;
+    duration?: string | null;
+    default_fee?: number;
+    is_active?: boolean;
+  }>) {
+    return await courseBatchRepository.bulkCreateCourses(courses);
   },
 
   async updateCourse(id: number, data: any) {

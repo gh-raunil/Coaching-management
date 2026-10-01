@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { courseBatchService } from '../services/courseBatchService';
-import { courseSchema, batchSchema } from '../validators/schemas';
+import { courseSchema, bulkCoursesSchema, batchSchema } from '../validators/schemas';
 import { sendSuccess, sendError } from '../utils/response';
 
 export const courseBatchController = {
@@ -19,14 +19,18 @@ export const courseBatchController = {
 
   async createCourse(req: Request, res: Response, next: NextFunction) {
     try {
+      // Check if bulk creation payload
+      if (req.body.courses && Array.isArray(req.body.courses)) {
+        const validated = bulkCoursesSchema.parse(req.body);
+        const createdCourses = await courseBatchService.bulkCreateCourses(validated.courses);
+        return sendSuccess(res, createdCourses, `${createdCourses.length} master course(s) created successfully`, 201);
+      }
+
+      // Single course creation
       const validated = courseSchema.parse(req.body);
       const coachingId = req.user?.role === 'SUPERADMIN'
         ? (validated.coaching_id || (req.query.coachingId ? parseInt(req.query.coachingId as string, 10) : null))
         : req.user!.coachingId;
-
-      if (!coachingId) {
-        return sendError(res, 'Target coaching institute is required to allot course', 400);
-      }
 
       const course = await courseBatchService.createCourse({
         coaching_id: coachingId,
@@ -35,10 +39,10 @@ export const courseBatchController = {
         default_fee: validated.default_fee,
         is_active: validated.is_active,
       });
-      return sendSuccess(res, course, 'Course allotted to institute successfully', 201);
+      return sendSuccess(res, course, 'Course created successfully', 201);
     } catch (err: any) {
       if (err.message && err.message.includes('unique') || err.code === '23505') {
-        return sendError(res, 'This course already exists for the selected coaching institute', 400);
+        return sendError(res, 'A course with this name already exists', 400);
       }
       next(err);
     }

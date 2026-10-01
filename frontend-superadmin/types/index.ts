@@ -23,7 +23,10 @@ export interface Coaching {
   updated_at: string;
   student_count?: number;
   admin_count?: number;
+  course_count?: number;
   total_revenue?: number;
+  assigned_courses?: Course[];
+  assigned_course_ids?: number[];
   stats?: {
     student_count: number;
     admin_count: number;
@@ -101,8 +104,9 @@ export interface Payment {
 
 export interface Course {
   id: number;
-  coaching_id: number;
+  coaching_id?: number | null;
   coaching_name?: string;
+  coaching_count?: number;
   course_name: string;
   duration?: string;
   default_fee: number;

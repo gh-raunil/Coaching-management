@@ -23,6 +23,7 @@ export const registerCoachingSchema = z.object({
   admin_name: z.string().min(2, 'Admin name is required'),
   admin_email: z.string().email('Valid admin email is required'),
   admin_password: z.string().min(6, 'Admin password must be at least 6 characters'),
+  course_ids: z.array(z.coerce.number().int().positive()).optional().default([]),
 });
 
 export const updateCoachingSchema = z.object({
@@ -36,6 +37,7 @@ export const updateCoachingSchema = z.object({
   website: z.string().optional().nullable(),
   logo_url: z.string().optional().nullable(),
   status: z.enum(['ACTIVE', 'SUSPENDED']).optional(),
+  course_ids: z.array(z.coerce.number().int().positive()).optional(),
 });
 
 export const addCoachingAdminSchema = z.object({
@@ -88,11 +90,22 @@ export const recordPaymentSchema = z.object({
 });
 
 export const courseSchema = z.object({
-  coaching_id: z.coerce.number().int().positive('Valid coaching ID is required').optional(),
+  coaching_id: z.coerce.number().int().positive('Valid coaching ID is required').optional().nullable(),
   course_name: z.string().min(2, 'Course name is required'),
   duration: z.string().optional().nullable().default(''),
   default_fee: z.coerce.number().min(0).default(0),
   is_active: z.boolean().optional().default(true),
+});
+
+export const bulkCoursesSchema = z.object({
+  courses: z.array(
+    z.object({
+      course_name: z.string().min(2, 'Course name is required'),
+      duration: z.string().optional().nullable().default(''),
+      default_fee: z.coerce.number().min(0).default(0),
+      is_active: z.boolean().optional().default(true),
+    })
+  ).min(1, 'At least one course is required'),
 });
 
 export const batchSchema = z.object({

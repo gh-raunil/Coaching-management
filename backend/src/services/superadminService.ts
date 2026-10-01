@@ -38,6 +38,7 @@ export const superadminService = {
     admin_name: string;
     admin_email: string;
     admin_password: string;
+    course_ids?: number[];
   }) {
     // Check if admin email already exists
     const existingUser = await userRepository.findByEmail(data.admin_email);
@@ -101,6 +102,18 @@ export const superadminService = {
          VALUES ($1, $2, true)`,
         [coaching.id, adminUser.id]
       );
+
+      // 5. Allot Selected Courses to Coaching
+      if (data.course_ids && data.course_ids.length > 0) {
+        for (const courseId of data.course_ids) {
+          await client.query(
+            `INSERT INTO coaching_courses (coaching_id, course_id)
+             VALUES ($1, $2)
+             ON CONFLICT DO NOTHING`,
+            [coaching.id, courseId]
+          );
+        }
+      }
 
       return {
         coaching,

@@ -76,17 +76,26 @@ CREATE TABLE coaching_settings (
 );
 
 -- 5. COURSES TABLE
--- Courses offered by each coaching institute
+-- Master catalog of courses managed exclusively by Superadmin
 CREATE TABLE courses (
     id SERIAL PRIMARY KEY,
-    coaching_id INT NOT NULL REFERENCES coachings(id) ON DELETE CASCADE,
+    coaching_id INT REFERENCES coachings(id) ON DELETE SET NULL,
     course_name VARCHAR(255) NOT NULL,
     duration VARCHAR(100),
     default_fee NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_coaching_course UNIQUE (coaching_id, course_name)
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 5b. COACHING_COURSES TABLE
+-- Junction table mapping courses allotted to specific coaching institutes
+CREATE TABLE coaching_courses (
+    id SERIAL PRIMARY KEY,
+    coaching_id INT NOT NULL REFERENCES coachings(id) ON DELETE CASCADE,
+    course_id INT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_coaching_course_link UNIQUE (coaching_id, course_id)
 );
 
 -- 6. BATCHES TABLE

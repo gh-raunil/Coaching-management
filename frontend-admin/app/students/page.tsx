@@ -148,7 +148,7 @@ export default function StudentManagementPage() {
 
     const year = today.getFullYear();
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-    const prefix = settings?.name ? settings.name.slice(0, 3).toUpperCase() : 'COA';
+    const prefix = 'ITB';
 
     setBillForm({
       invoiceNo: `INV-${prefix}-${year}-${randomSuffix}`,

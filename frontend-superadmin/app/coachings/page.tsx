@@ -26,15 +26,17 @@ import {
   Shield,
   Edit2,
   RefreshCw,
+  BookOpen,
 } from 'lucide-react';
 import api from '@/lib/api';
-import { Coaching, CoachingAdmin } from '@/types';
+import { Coaching, CoachingAdmin, Course } from '@/types';
 import { formatINR, formatDateStr } from '@/lib/utils';
 import { toast } from 'sonner';
 
 export default function CoachingManagementPage() {
   const [coachings, setCoachings] = useState<Coaching[]>([]);
   const [selectedCoaching, setSelectedCoaching] = useState<Coaching | null>(null);
+  const [masterCourses, setMasterCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -61,6 +63,7 @@ export default function CoachingManagementPage() {
     admin_name: '',
     admin_email: '',
     admin_password: '',
+    course_ids: [] as number[],
   });
 
   const [editForm, setEditForm] = useState({
@@ -73,6 +76,7 @@ export default function CoachingManagementPage() {
     pincode: '',
     website: '',
     logo_url: '',
+    course_ids: [] as number[],
   });
 
   const [addAdminForm, setAddAdminForm] = useState({
@@ -85,6 +89,15 @@ export default function CoachingManagementPage() {
   const [targetAdmin, setTargetAdmin] = useState<CoachingAdmin | null>(null);
   const [newAdminPassword, setNewAdminPassword] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+
+  const fetchMasterCourses = async () => {
+    try {
+      const res = await api.get('/courses');
+      setMasterCourses(res.data.data || []);
+    } catch (err) {
+      console.error('Failed to load master courses', err);
+    }
+  };
 
   // Fetch all coachings
   const fetchCoachings = async (selectId?: number) => {
@@ -125,11 +138,16 @@ export default function CoachingManagementPage() {
         pincode: data.pincode || '',
         website: data.website || '',
         logo_url: data.logo_url || '',
+        course_ids: data.assigned_course_ids || [],
       });
     } catch (err: any) {
       toast.error('Failed to load coaching details');
     }
   };
+
+  useEffect(() => {
+    fetchMasterCourses();
+  }, []);
 
   useEffect(() => {
     fetchCoachings();
@@ -156,6 +174,7 @@ export default function CoachingManagementPage() {
         admin_name: '',
         admin_email: '',
         admin_password: '',
+        course_ids: [],
       });
       fetchCoachings(res.data.data.coaching.id);
     } catch (err: any) {
@@ -531,6 +550,60 @@ export default function CoachingManagementPage() {
                       </div>
                     </div>
 
+                    {/* Allotted Courses Section */}
+                    <div className="bg-slate-50/50 border border-slate-200 rounded-xl p-5">
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                            <BookOpen className="w-4 h-4 text-purple-600" />
+                            Allotted Master Courses ({selectedCoaching.assigned_courses?.length || 0})
+                          </h3>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            Courses this coaching center is permitted to offer students
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setIsEditOpen(true)}
+                          className="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-indigo-600 rounded-lg text-xs font-semibold shadow-sm transition cursor-pointer"
+                        >
+                          Modify Courses
+                        </button>
+                      </div>
+
+                      {(!selectedCoaching.assigned_courses || selectedCoaching.assigned_courses.length === 0) ? (
+                        <div className="p-4 bg-white border border-dashed border-slate-300 rounded-lg text-center">
+                          <BookOpen className="w-6 h-6 text-slate-300 mx-auto mb-1.5" />
+                          <p className="text-xs text-slate-500 font-medium">
+                            No courses allotted yet
+                          </p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Click "Modify Courses" to allot master courses to this branch.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {selectedCoaching.assigned_courses.map((c) => (
+                            <div
+                              key={c.id}
+                              className="p-3 bg-white border border-slate-200 rounded-lg flex items-center justify-between shadow-xs"
+                            >
+                              <div className="min-w-0 mr-2">
+                                <div className="text-xs font-bold text-slate-800 truncate">
+                                  {c.course_name}
+                                </div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">
+                                  {c.duration || 'Standard Duration'}
+                                </div>
+                              </div>
+                              <span className="text-xs font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded shrink-0">
+                                {formatINR(c.default_fee)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                     {/* Admin Management Section */}
                     <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
                       <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
@@ -734,6 +807,90 @@ export default function CoachingManagementPage() {
             </div>
           </div>
 
+          {/* Section: Assign Master Courses */}
+          <div className="pt-3 border-t border-slate-200">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <h4 className="font-bold text-slate-900 uppercase text-[11px] tracking-wider">
+                  Assign Courses to Coaching Center ({registerForm.course_ids.length} selected)
+                </h4>
+                <p className="text-[11px] text-slate-500">
+                  Select the master courses this coaching branch is permitted to offer students
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setRegisterForm({
+                      ...registerForm,
+                      course_ids: masterCourses.map((c) => c.id),
+                    })
+                  }
+                  className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 cursor-pointer"
+                >
+                  Select All
+                </button>
+                <span className="text-slate-300">|</span>
+                <button
+                  type="button"
+                  onClick={() => setRegisterForm({ ...registerForm, course_ids: [] })}
+                  className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 cursor-pointer"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+
+            {masterCourses.length === 0 ? (
+              <div className="p-3 text-center bg-slate-50 border border-slate-200 rounded-lg text-slate-500 text-xs">
+                No master courses available yet. Create master courses first in the Courses section.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-1.5 border border-slate-200 rounded-lg bg-slate-50/50">
+                {masterCourses.map((c) => {
+                  const isChecked = registerForm.course_ids.includes(c.id);
+                  return (
+                    <label
+                      key={c.id}
+                      className={`flex items-start gap-2.5 p-2 rounded-lg border text-xs cursor-pointer transition ${
+                        isChecked
+                          ? 'bg-indigo-50/80 border-indigo-300 text-slate-900 shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setRegisterForm({
+                              ...registerForm,
+                              course_ids: [...registerForm.course_ids, c.id],
+                            });
+                          } else {
+                            setRegisterForm({
+                              ...registerForm,
+                              course_ids: registerForm.course_ids.filter((id) => id !== c.id),
+                            });
+                          }
+                        }}
+                        className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold truncate text-slate-800">{c.course_name}</div>
+                        <div className="text-[10px] text-slate-500 flex items-center gap-2 mt-0.5">
+                          {c.duration && <span>{c.duration}</span>}
+                          <span className="font-medium text-slate-700">₹{Number(c.default_fee).toLocaleString('en-IN')}</span>
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <div className="pt-3 border-t border-slate-200">
             <h4 className="font-bold text-slate-900 mb-2 uppercase text-[11px] tracking-wider">
               Primary Administrator Credentials
@@ -799,8 +956,9 @@ export default function CoachingManagementPage() {
       <Modal
         isOpen={isEditOpen}
         onClose={() => setIsEditOpen(false)}
-        title="Edit Coaching Information"
-        maxWidth="max-w-xl"
+        title="Edit Coaching & Course Allotments"
+        subtitle="Update institute profile details and manage assigned master courses"
+        maxWidth="max-w-2xl"
       >
         <form onSubmit={handleEdit} className="space-y-4 text-xs">
           <div>
@@ -876,6 +1034,90 @@ export default function CoachingManagementPage() {
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg"
               />
             </div>
+          </div>
+
+          {/* Section: Assigned Master Courses */}
+          <div className="pt-3 border-t border-slate-200">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <h4 className="font-bold text-slate-900 uppercase text-[11px] tracking-wider">
+                  Assigned Master Courses ({editForm.course_ids.length} selected)
+                </h4>
+                <p className="text-[11px] text-slate-500">
+                  Check or uncheck courses to update permissions for this coaching center
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setEditForm({
+                      ...editForm,
+                      course_ids: masterCourses.map((c) => c.id),
+                    })
+                  }
+                  className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 cursor-pointer"
+                >
+                  Select All
+                </button>
+                <span className="text-slate-300">|</span>
+                <button
+                  type="button"
+                  onClick={() => setEditForm({ ...editForm, course_ids: [] })}
+                  className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 cursor-pointer"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+
+            {masterCourses.length === 0 ? (
+              <div className="p-3 text-center bg-slate-50 border border-slate-200 rounded-lg text-slate-500 text-xs">
+                No master courses found in catalog. Create courses first in the Courses section.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-1.5 border border-slate-200 rounded-lg bg-slate-50/50">
+                {masterCourses.map((c) => {
+                  const isChecked = editForm.course_ids.includes(c.id);
+                  return (
+                    <label
+                      key={c.id}
+                      className={`flex items-start gap-2.5 p-2 rounded-lg border text-xs cursor-pointer transition ${
+                        isChecked
+                          ? 'bg-indigo-50/80 border-indigo-300 text-slate-900 shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setEditForm({
+                              ...editForm,
+                              course_ids: [...editForm.course_ids, c.id],
+                            });
+                          } else {
+                            setEditForm({
+                              ...editForm,
+                              course_ids: editForm.course_ids.filter((id) => id !== c.id),
+                            });
+                          }
+                        }}
+                        className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold truncate text-slate-800">{c.course_name}</div>
+                        <div className="text-[10px] text-slate-500 flex items-center gap-2 mt-0.5">
+                          {c.duration && <span>{c.duration}</span>}
+                          <span className="font-medium text-slate-700">₹{Number(c.default_fee).toLocaleString('en-IN')}</span>
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
           </div>
           <div className="pt-4 flex justify-end gap-3">
             <button

@@ -26,52 +26,102 @@ export interface BatchRow {
 
 export const courseBatchRepository = {
   async getCourses(coachingId?: number | null) {
-    let query = `
-      SELECT c.*, 
-        co.name AS coaching_name,
-        COUNT(DISTINCT b.id) AS batch_count,
-        COUNT(DISTINCT s.id) AS student_count
-      FROM courses c
-      JOIN coachings co ON co.id = c.coaching_id
-      LEFT JOIN batches b ON b.course_id = c.id
-      LEFT JOIN students s ON s.course_name = c.course_name AND s.coaching_id = c.coaching_id
-    `;
-    const params: any[] = [];
+    let query: string;
+    let params: any[] = [];
+
     if (coachingId) {
-      params.push(coachingId);
-      query += ` WHERE c.coaching_id = $1`;
+      query = `
+        SELECT c.*, 
+          co.name AS coaching_name,
+          COUNT(DISTINCT b.id) AS batch_count,
+          COUNT(DISTINCT s.id) AS student_count
+        FROM courses c
+        JOIN coaching_courses cc ON cc.course_id = c.id
+        LEFT JOIN coachings co ON co.id = cc.coaching_id
+        LEFT JOIN batches b ON b.course_id = c.id AND b.coaching_id = $1
+        LEFT JOIN students s ON s.course_name = c.course_name AND s.coaching_id = $1
+        WHERE cc.coaching_id = $1
+        GROUP BY c.id, co.name
+        ORDER BY c.created_at DESC
+      `;
+      params = [coachingId];
+    } else {
+      query = `
+        SELECT c.*,
+          COUNT(DISTINCT cc.coaching_id) AS coaching_count,
+          COUNT(DISTINCT b.id) AS batch_count,
+          COUNT(DISTINCT s.id) AS student_count
+        FROM courses c
+        LEFT JOIN coaching_courses cc ON cc.course_id = c.id
+        LEFT JOIN batches b ON b.course_id = c.id
+        LEFT JOIN students s ON s.course_name = c.course_name
+        GROUP BY c.id
+        ORDER BY c.created_at DESC
+      `;
     }
-    query += ` GROUP BY c.id, co.name ORDER BY c.created_at DESC`;
 
     const res = await db.query(query, params);
     return res.rows.map((r) => ({
       ...r,
       default_fee: parseFloat(r.default_fee),
+      coaching_count: r.coaching_count ? parseInt(r.coaching_count, 10) : (coachingId ? 1 : 0),
       batch_count: parseInt(r.batch_count || '0', 10),
       student_count: parseInt(r.student_count || '0', 10),
     }));
   },
 
   async createCourse(data: {
-    coaching_id: number;
     course_name: string;
-    duration?: string;
+    duration?: string | null;
     default_fee?: number;
     is_active?: boolean;
+    coaching_id?: number | null;
   }): Promise<CourseRow> {
     const res = await db.query<CourseRow>(
       `INSERT INTO courses (coaching_id, course_name, duration, default_fee, is_active)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
       [
-        data.coaching_id,
+        data.coaching_id || null,
         data.course_name,
         data.duration || '',
         data.default_fee || 0,
         data.is_active ?? true,
       ]
     );
-    return res.rows[0];
+    const course = res.rows[0];
+    if (data.coaching_id) {
+      await db.query(
+        `INSERT INTO coaching_courses (coaching_id, course_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [data.coaching_id, course.id]
+      );
+    }
+    return course;
+  },
+
+  async bulkCreateCourses(courses: Array<{
+    course_name: string;
+    duration?: string | null;
+    default_fee?: number;
+    is_active?: boolean;
+  }>): Promise<CourseRow[]> {
+    const createdCourses: CourseRow[] = [];
+    for (const c of courses) {
+      if (!c.course_name || !c.course_name.trim()) continue;
+      const res = await db.query<CourseRow>(
+        `INSERT INTO courses (course_name, duration, default_fee, is_active)
+         VALUES ($1, $2, $3, $4)
+         RETURNING *`,
+        [
+          c.course_name.trim(),
+          c.duration?.trim() || '',
+          c.default_fee || 0,
+          c.is_active ?? true,
+        ]
+      );
+      createdCourses.push(res.rows[0]);
+    }
+    return createdCourses;
   },
 
   async updateCourse(

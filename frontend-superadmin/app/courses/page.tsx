@@ -18,11 +18,20 @@ import {
   IndianRupee,
   Users,
   AlertTriangle,
+  Layers,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { Course, Coaching } from '@/types';
 import { formatINR } from '@/lib/utils';
 import { toast } from 'sonner';
+
+interface CourseDraft {
+  id: string;
+  course_name: string;
+  duration: string;
+  default_fee: number;
+  is_active: boolean;
+}
 
 export default function SuperadminCoursesPage() {
   const [courses, setCourses] = useState<Course[]>([]);
@@ -31,22 +40,25 @@ export default function SuperadminCoursesPage() {
   const [search, setSearch] = useState('');
   const [selectedCoachingId, setSelectedCoachingId] = useState<string>('ALL');
 
-  // Add / Allot Course Modal
+  // Multi-add Course Modal
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [courseDrafts, setCourseDrafts] = useState<CourseDraft[]>([
+    { id: '1', course_name: '', duration: '', default_fee: 0, is_active: true },
+  ]);
+
+  // Edit Course Modal
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [targetCourse, setTargetCourse] = useState<Course | null>(null);
-
-  // Delete Course Confirmation
-  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
-  const [courseToDelete, setCourseToDelete] = useState<Course | null>(null);
-
-  const [form, setForm] = useState({
-    coaching_id: '',
+  const [editForm, setEditForm] = useState({
     course_name: '',
     duration: '',
     default_fee: 0,
     is_active: true,
   });
+
+  // Delete Course Confirmation
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [courseToDelete, setCourseToDelete] = useState<Course | null>(null);
 
   const [actionLoading, setActionLoading] = useState(false);
 
@@ -70,39 +82,68 @@ export default function SuperadminCoursesPage() {
     fetchData();
   }, []);
 
-  const handleAllotCourse = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.coaching_id) {
-      toast.error('Please select a coaching institute to allot this course to');
+  // Multi-course form handlers
+  const handleAddDraftRow = () => {
+    setCourseDrafts((prev) => [
+      ...prev,
+      {
+        id: String(Date.now() + Math.random()),
+        course_name: '',
+        duration: '',
+        default_fee: 0,
+        is_active: true,
+      },
+    ]);
+  };
+
+  const handleRemoveDraftRow = (id: string) => {
+    if (courseDrafts.length <= 1) {
+      toast.error('At least one course is required');
       return;
     }
-    if (!form.course_name.trim()) {
-      toast.error('Course name is required');
+    setCourseDrafts((prev) => prev.filter((d) => d.id !== id));
+  };
+
+  const handleDraftChange = (id: string, field: keyof CourseDraft, value: any) => {
+    setCourseDrafts((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, [field]: value } : d))
+    );
+  };
+
+  const handleCreateCourses = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // Validation
+    const emptyNames = courseDrafts.filter((d) => !d.course_name.trim());
+    if (emptyNames.length > 0) {
+      toast.error('Please enter a course name for all added courses');
       return;
     }
 
     try {
       setActionLoading(true);
-      await api.post('/courses', {
-        coaching_id: Number(form.coaching_id),
-        course_name: form.course_name.trim(),
-        duration: form.duration.trim() || undefined,
-        default_fee: Number(form.default_fee) || 0,
-        is_active: form.is_active,
-      });
+      const payload = {
+        courses: courseDrafts.map((d) => ({
+          course_name: d.course_name.trim(),
+          duration: d.duration.trim() || undefined,
+          default_fee: Number(d.default_fee) || 0,
+          is_active: d.is_active,
+        })),
+      };
 
-      toast.success('Course successfully created and allotted to institute!');
+      await api.post('/courses', payload);
+      toast.success(
+        courseDrafts.length > 1
+          ? `${courseDrafts.length} courses created successfully!`
+          : 'Course created successfully!'
+      );
       setIsAddOpen(false);
-      setForm({
-        coaching_id: '',
-        course_name: '',
-        duration: '',
-        default_fee: 0,
-        is_active: true,
-      });
+      setCourseDrafts([
+        { id: '1', course_name: '', duration: '', default_fee: 0, is_active: true },
+      ]);
       fetchData();
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to allot course');
+      toast.error(err.response?.data?.message || 'Failed to create courses');
     } finally {
       setActionLoading(false);
     }
@@ -111,15 +152,18 @@ export default function SuperadminCoursesPage() {
   const handleUpdateCourse = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!targetCourse) return;
+    if (!editForm.course_name.trim()) {
+      toast.error('Course name is required');
+      return;
+    }
 
     try {
       setActionLoading(true);
       await api.put(`/courses/${targetCourse.id}`, {
-        coaching_id: form.coaching_id ? Number(form.coaching_id) : targetCourse.coaching_id,
-        course_name: form.course_name.trim(),
-        duration: form.duration.trim() || undefined,
-        default_fee: Number(form.default_fee) || 0,
-        is_active: form.is_active,
+        course_name: editForm.course_name.trim(),
+        duration: editForm.duration.trim() || undefined,
+        default_fee: Number(editForm.default_fee) || 0,
+        is_active: editForm.is_active,
       });
 
       toast.success('Course updated successfully!');
@@ -152,8 +196,7 @@ export default function SuperadminCoursesPage() {
 
   const openEdit = (c: Course) => {
     setTargetCourse(c);
-    setForm({
-      coaching_id: String(c.coaching_id),
+    setEditForm({
       course_name: c.course_name,
       duration: c.duration || '',
       default_fee: c.default_fee,
@@ -173,25 +216,21 @@ export default function SuperadminCoursesPage() {
   };
 
   const filtered = courses.filter((c) => {
-    const matchesSearch =
-      c.course_name.toLowerCase().includes(search.toLowerCase()) ||
-      (c.coaching_name && c.coaching_name.toLowerCase().includes(search.toLowerCase()));
-    const matchesCoaching =
-      selectedCoachingId === 'ALL' ? true : String(c.coaching_id) === selectedCoachingId;
-    return matchesSearch && matchesCoaching;
+    const matchesSearch = c.course_name.toLowerCase().includes(search.toLowerCase());
+    return matchesSearch;
   });
 
   const totalCourses = courses.length;
   const activeCourses = courses.filter((c) => c.is_active).length;
-  const uniqueInstitutes = new Set(courses.map((c) => c.coaching_id)).size;
+  const totalAllotments = courses.reduce((acc, c) => acc + (c.coaching_count || 0), 0);
 
   return (
     <div className="flex min-h-screen bg-slate-50">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <Header
-          title="Courses Allotment & Management"
-          subtitle="Superadmin exclusive control: Create, allot, and manage academic courses across coaching branches"
+          title="Master Courses Catalog"
+          subtitle="Superadmin exclusive control: Define platform master courses and assign them across coaching centers"
         />
 
         <div className="p-6 max-w-7xl mx-auto w-full space-y-6">
@@ -202,9 +241,9 @@ export default function SuperadminCoursesPage() {
                 <BookOpen className="w-6 h-6" />
               </div>
               <div>
-                <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Total Allotted Courses</p>
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Master Courses</p>
                 <h3 className="text-2xl font-bold text-slate-900 mt-0.5">{totalCourses}</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Across all institutes</p>
+                <p className="text-xs text-slate-400 mt-0.5">Defined by Superadmin</p>
               </div>
             </div>
 
@@ -215,7 +254,7 @@ export default function SuperadminCoursesPage() {
               <div>
                 <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Active Offerings</p>
                 <h3 className="text-2xl font-bold text-emerald-600 mt-0.5">{activeCourses}</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Available for student enrollment</p>
+                <p className="text-xs text-slate-400 mt-0.5">Ready for institute allotment</p>
               </div>
             </div>
 
@@ -224,9 +263,9 @@ export default function SuperadminCoursesPage() {
                 <Building2 className="w-6 h-6" />
               </div>
               <div>
-                <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Institutes Configured</p>
-                <h3 className="text-2xl font-bold text-slate-900 mt-0.5">{uniqueInstitutes}</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Institutes with active courses</p>
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Total Allotments</p>
+                <h3 className="text-2xl font-bold text-slate-900 mt-0.5">{totalAllotments}</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Assigned to coaching institutes</p>
               </div>
             </div>
           </div>
@@ -234,29 +273,16 @@ export default function SuperadminCoursesPage() {
           {/* Filter & Action Toolbar */}
           <div className="flex flex-col sm:flex-row gap-4 justify-between items-stretch sm:items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
             <div className="flex flex-1 gap-3 flex-wrap">
-              <div className="relative flex-1 min-w-[220px]">
+              <div className="relative flex-1 min-w-[240px]">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
                   type="text"
-                  placeholder="Search course name or institute..."
+                  placeholder="Search master course name..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
                 />
               </div>
-
-              <select
-                value={selectedCoachingId}
-                onChange={(e) => setSelectedCoachingId(e.target.value)}
-                className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white text-slate-700 focus:ring-2 focus:ring-purple-500 focus:outline-none min-w-[200px]"
-              >
-                <option value="ALL">All Coaching Institutes</option>
-                {coachings.map((co) => (
-                  <option key={co.id} value={String(co.id)}>
-                    {co.name} {co.city ? `(${co.city})` : ''}
-                  </option>
-                ))}
-              </select>
             </div>
 
             <div className="flex items-center gap-3">
@@ -269,19 +295,15 @@ export default function SuperadminCoursesPage() {
               </button>
               <button
                 onClick={() => {
-                  setForm({
-                    coaching_id: coachings.length > 0 ? String(coachings[0].id) : '',
-                    course_name: '',
-                    duration: '',
-                    default_fee: 0,
-                    is_active: true,
-                  });
+                  setCourseDrafts([
+                    { id: '1', course_name: '', duration: '', default_fee: 0, is_active: true },
+                  ]);
                   setIsAddOpen(true);
                 }}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:bg-purple-700 transition shadow-sm"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:bg-purple-700 transition shadow-sm cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
-                Allot Course to Institute
+                Create Course
               </button>
             </div>
           </div>
@@ -293,11 +315,11 @@ export default function SuperadminCoursesPage() {
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     <th className="py-3 px-4">Course Name</th>
-                    <th className="py-3 px-4">Allotted Institute</th>
                     <th className="py-3 px-4">Duration</th>
                     <th className="py-3 px-4 text-right">Default Fee</th>
-                    <th className="py-3 px-4 text-center">Batches</th>
-                    <th className="py-3 px-4 text-center">Students</th>
+                    <th className="py-3 px-4 text-center">Allotted Institutes</th>
+                    <th className="py-3 px-4 text-center">Total Batches</th>
+                    <th className="py-3 px-4 text-center">Total Students</th>
                     <th className="py-3 px-4 text-center">Status</th>
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
@@ -307,14 +329,14 @@ export default function SuperadminCoursesPage() {
                     <tr>
                       <td colSpan={8} className="py-12 text-center text-slate-400">
                         <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-purple-500" />
-                        Loading courses...
+                        Loading master courses...
                       </td>
                     </tr>
                   ) : filtered.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="py-12 text-center text-slate-500">
                         <BookOpen className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-                        No courses found for the selected filter.
+                        No courses found. Click "+ Create Course" to add master courses.
                       </td>
                     </tr>
                   ) : (
@@ -323,12 +345,6 @@ export default function SuperadminCoursesPage() {
                         <td className="py-3.5 px-4">
                           <div className="font-semibold text-slate-800">{c.course_name}</div>
                           <div className="text-xs text-slate-400">ID #{c.id}</div>
-                        </td>
-                        <td className="py-3.5 px-4">
-                          <div className="flex items-center gap-1.5 font-medium text-slate-700">
-                            <Building2 className="w-4 h-4 text-indigo-500 shrink-0" />
-                            <span>{c.coaching_name || `Institute #${c.coaching_id}`}</span>
-                          </div>
                         </td>
                         <td className="py-3.5 px-4 text-xs text-slate-600">
                           {c.duration ? (
@@ -346,6 +362,12 @@ export default function SuperadminCoursesPage() {
                           ) : (
                             <span className="text-slate-400">₹ 0.00</span>
                           )}
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200">
+                            <Building2 className="w-3 h-3" />
+                            {c.coaching_count || 0} Institute{(c.coaching_count || 0) === 1 ? '' : 's'}
+                          </span>
                         </td>
                         <td className="py-3.5 px-4 text-center">
                           <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700">
@@ -410,166 +432,181 @@ export default function SuperadminCoursesPage() {
         </div>
       </div>
 
-      {/* Allot Course Modal */}
+      {/* CREATE MASTER COURSE(S) MODAL WITH DYNAMIC MULTI-ADD */}
       <Modal
         isOpen={isAddOpen}
         onClose={() => setIsAddOpen(false)}
-        title="Allot New Course to Institute"
-        subtitle="Configure and allow this course for the selected coaching institute"
-        size="md"
+        title="Create Master Course(s)"
+        subtitle="Add one or more platform master courses that can be assigned to coaching branches"
+        maxWidth="max-w-3xl"
       >
-        <form onSubmit={handleAllotCourse} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Select Coaching Institute *
-            </label>
-            <select
-              required
-              value={form.coaching_id}
-              onChange={(e) => setForm({ ...form, coaching_id: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none"
-            >
-              <option value="">-- Choose Institute --</option>
-              {coachings.map((co) => (
-                <option key={co.id} value={co.id}>
-                  {co.name} {co.city ? `(${co.city})` : ''} - [{co.status}]
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Course Name *
-            </label>
-            <input
-              type="text"
-              required
-              placeholder="e.g. Class 12 Physics & Math Advanced"
-              value={form.course_name}
-              onChange={(e) => setForm({ ...form, course_name: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Duration (Optional)
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. 1 Year / 6 Months"
-                value={form.duration}
-                onChange={(e) => setForm({ ...form, duration: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Default Standard Fee (₹)
-              </label>
-              <input
-                type="number"
-                min="0"
-                step="100"
-                value={form.default_fee}
-                onChange={(e) => setForm({ ...form, default_fee: Number(e.target.value) })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 pt-2">
-            <input
-              type="checkbox"
-              id="is_active_allot"
-              checked={form.is_active}
-              onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
-              className="rounded text-purple-600 focus:ring-purple-500"
-            />
-            <label htmlFor="is_active_allot" className="text-xs text-slate-700">
-              Immediately active and enrollable in coaching portal
-            </label>
-          </div>
-
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+        <form onSubmit={handleCreateCourses} className="space-y-4">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+              Course Entries ({courseDrafts.length})
+            </span>
             <button
               type="button"
-              onClick={() => setIsAddOpen(false)}
-              className="px-4 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50"
+              onClick={handleAddDraftRow}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-xs font-semibold border border-purple-200 transition cursor-pointer"
             >
-              Cancel
+              <Plus className="w-3.5 h-3.5" />
+              Add Another Course
             </button>
+          </div>
+
+          <div className="space-y-4 max-h-[55vh] overflow-y-auto pr-1">
+            {courseDrafts.map((draft, index) => (
+              <div
+                key={draft.id}
+                className="p-4 bg-slate-50/70 border border-slate-200 rounded-xl relative space-y-3"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-full bg-purple-600 text-white font-bold text-xs flex items-center justify-center">
+                      {index + 1}
+                    </span>
+                    <span className="text-xs font-bold text-slate-800">
+                      Course #{index + 1}
+                    </span>
+                  </div>
+                  {courseDrafts.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveDraftRow(draft.id)}
+                      className="text-slate-400 hover:text-red-600 p-1 rounded transition cursor-pointer"
+                      title="Remove this course section"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                  <div className="md:col-span-1">
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Course Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. JEE Advanced Physics & Math"
+                      value={draft.course_name}
+                      onChange={(e) => handleDraftChange(draft.id, 'course_name', e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Duration
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 2-Year Program / 6 Months"
+                      value={draft.duration}
+                      onChange={(e) => handleDraftChange(draft.id, 'duration', e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Standard Fee (₹)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="100"
+                      placeholder="e.g. 25000"
+                      value={draft.default_fee}
+                      onChange={(e) =>
+                        handleDraftChange(draft.id, 'default_fee', Number(e.target.value))
+                      }
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-center justify-between pt-3 border-t border-slate-200">
             <button
-              type="submit"
-              disabled={actionLoading}
-              className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:bg-purple-700 disabled:opacity-50"
+              type="button"
+              onClick={handleAddDraftRow}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-700 hover:text-purple-800 cursor-pointer"
             >
-              {actionLoading ? 'Allotting...' : 'Allot Course'}
+              <Plus className="w-3.5 h-3.5" />
+              Add more courses
             </button>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setIsAddOpen(false)}
+                className="px-4 py-2 border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={actionLoading}
+                className="px-5 py-2 bg-purple-600 text-white rounded-lg text-xs font-semibold hover:bg-purple-700 disabled:opacity-50 shadow-sm cursor-pointer"
+              >
+                {actionLoading
+                  ? 'Creating...'
+                  : courseDrafts.length > 1
+                  ? `Create ${courseDrafts.length} Courses`
+                  : 'Create Course'}
+              </button>
+            </div>
           </div>
         </form>
       </Modal>
 
-      {/* Edit Course Modal */}
+      {/* EDIT COURSE MODAL */}
       <Modal
         isOpen={isEditOpen}
         onClose={() => setIsEditOpen(false)}
-        title="Edit Course Configuration"
+        title="Edit Master Course"
+        subtitle="Modify details of this platform master course"
         size="md"
       >
-        <form onSubmit={handleUpdateCourse} className="space-y-4">
+        <form onSubmit={handleUpdateCourse} className="space-y-4 text-xs">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Allotted Institute *
-            </label>
-            <select
-              required
-              value={form.coaching_id}
-              onChange={(e) => setForm({ ...form, coaching_id: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none"
-            >
-              {coachings.map((co) => (
-                <option key={co.id} value={co.id}>
-                  {co.name} {co.city ? `(${co.city})` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block font-semibold text-slate-700 mb-1">
               Course Name *
             </label>
             <input
               type="text"
               required
-              value={form.course_name}
-              onChange={(e) => setForm({ ...form, course_name: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
+              value={editForm.course_name}
+              onChange={(e) => setEditForm({ ...editForm, course_name: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:border-purple-500"
             />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Duration</label>
+              <label className="block font-semibold text-slate-700 mb-1">Duration</label>
               <input
                 type="text"
-                value={form.duration}
-                onChange={(e) => setForm({ ...form, duration: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                placeholder="e.g. 1 Year / 6 Months"
+                value={editForm.duration}
+                onChange={(e) => setEditForm({ ...editForm, duration: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:border-purple-500"
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Default Fee (₹)</label>
+              <label className="block font-semibold text-slate-700 mb-1">Default Fee (₹)</label>
               <input
                 type="number"
                 min="0"
                 step="100"
-                value={form.default_fee}
-                onChange={(e) => setForm({ ...form, default_fee: Number(e.target.value) })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                value={editForm.default_fee}
+                onChange={(e) => setEditForm({ ...editForm, default_fee: Number(e.target.value) })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:border-purple-500"
               />
             </div>
           </div>
@@ -578,12 +615,12 @@ export default function SuperadminCoursesPage() {
             <input
               type="checkbox"
               id="is_active_edit"
-              checked={form.is_active}
-              onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+              checked={editForm.is_active}
+              onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })}
               className="rounded text-purple-600 focus:ring-purple-500"
             />
-            <label htmlFor="is_active_edit" className="text-xs text-slate-700">
-              Active status
+            <label htmlFor="is_active_edit" className="text-slate-700 font-medium">
+              Course is active and available for institute allotment
             </label>
           </div>
 
@@ -591,14 +628,14 @@ export default function SuperadminCoursesPage() {
             <button
               type="button"
               onClick={() => setIsEditOpen(false)}
-              className="px-4 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50"
+              className="px-4 py-2 border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={actionLoading}
-              className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:bg-purple-700 disabled:opacity-50"
+              className="px-4 py-2 bg-purple-600 text-white rounded-lg text-xs font-semibold hover:bg-purple-700 disabled:opacity-50 cursor-pointer"
             >
               {actionLoading ? 'Saving...' : 'Update Course'}
             </button>
@@ -606,30 +643,29 @@ export default function SuperadminCoursesPage() {
         </form>
       </Modal>
 
-      {/* Delete Confirmation Modal */}
+      {/* DELETE CONFIRMATION MODAL */}
       <Modal
         isOpen={isDeleteOpen}
         onClose={() => setIsDeleteOpen(false)}
-        title="Delete Course Allotment"
+        title="Delete Master Course"
         size="sm"
       >
         <div className="space-y-4">
           <div className="flex items-center gap-3 p-3 bg-red-50 text-red-700 rounded-xl">
             <AlertTriangle className="w-6 h-6 shrink-0" />
             <p className="text-xs">
-              Are you sure you want to delete course <b>"{courseToDelete?.course_name}"</b> allotted to{' '}
-              <b>{courseToDelete?.coaching_name}</b>?
+              Are you sure you want to delete course <b>"{courseToDelete?.course_name}"</b>?
             </p>
           </div>
           <p className="text-xs text-slate-500">
-            This action will permanently remove this course offering. If student batches or invoices are linked, the deletion may be blocked.
+            This action will permanently remove this course from the master catalog. If student records or batches are already linked, deletion will be safely rejected.
           </p>
 
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
               onClick={() => setIsDeleteOpen(false)}
-              className="px-3.5 py-1.5 border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50"
+              className="px-3.5 py-1.5 border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 cursor-pointer"
             >
               Cancel
             </button>
@@ -637,7 +673,7 @@ export default function SuperadminCoursesPage() {
               type="button"
               disabled={actionLoading}
               onClick={handleDeleteCourse}
-              className="px-4 py-1.5 bg-red-600 text-white rounded-lg text-xs font-semibold hover:bg-red-700 disabled:opacity-50"
+              className="px-4 py-1.5 bg-red-600 text-white rounded-lg text-xs font-semibold hover:bg-red-700 disabled:opacity-50 cursor-pointer"
             >
               {actionLoading ? 'Deleting...' : 'Delete Permanently'}
             </button>
