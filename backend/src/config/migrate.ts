@@ -4,11 +4,11 @@ import { db } from './db';
 
 export async function runMigrations() {
   console.log('🔄 Starting database migration and seeding...');
-  const sqlDir = path.resolve(__dirname, '../../database/sql');
+  const sqlDir = path.resolve(__dirname, '../../database/sql/mysql');
   const files = [
-    '001_create_tables.sql',
-    '002_create_indexes.sql',
-    '003_seed_data.sql',
+    '001_create_tables_mysql.sql',
+    '002_create_indexes_mysql.sql',
+    '003_seed_data_mysql.sql',
   ];
 
   const client = await db.getClient();
@@ -18,7 +18,19 @@ export async function runMigrations() {
       if (fs.existsSync(filePath)) {
         console.log(`⏳ Executing ${file}...`);
         const sql = fs.readFileSync(filePath, 'utf-8');
-        await client.query(sql);
+        const statements = sql
+          .split(';')
+          .map((stmt) => stmt.trim())
+          .filter((stmt) => stmt.length > 0);
+
+        for (const statement of statements) {
+          try {
+            await client.query(statement);
+          } catch (stmtErr) {
+            console.error(`Error in statement in ${file}:\n${statement.substring(0, 150)}...`);
+            throw stmtErr;
+          }
+        }
         console.log(`✅ Completed ${file}`);
       } else {
         console.warn(`⚠️ Warning: SQL file not found: ${filePath}`);
